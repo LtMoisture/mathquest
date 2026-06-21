@@ -65,6 +65,7 @@ body { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
 #game-lives { font-size:20px; letter-spacing:3px; }
 #game-progress { color:#aab; font-size:13px; }
 #game-topic-label { color:#7ecfff; font-size:13px; font-weight:700; }
+#game-home { font-size:19px; cursor:pointer; line-height:1; -webkit-tap-highlight-color:transparent; }
 
 #combo-bar { text-align:center; height:26px; }
 #combo-tag { display:none; color:#1a1a2e; background:#FFD700; font-weight:800; font-size:14px; padding:3px 14px; border-radius:0 0 12px 12px; }
@@ -200,6 +201,7 @@ body { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
 <!-- GAME -->
 <div id="screen-game" class="screen">
   <div id="game-topbar">
+    <div id="game-home" title="Choose topic">🏠</div>
     <div id="game-lives">❤️❤️❤️</div>
     <div id="game-topic-label"></div>
     <div id="game-progress">1/10</div>
@@ -338,7 +340,7 @@ var REC = (function(){
 
 /* ---------- GENTLE AMBIENT MUSIC (generative, offline) ---------- */
 var AUDIO = (function(){
-  var ctx=null, master=null, filt=null, timer=null, step=0;
+  var ctx=null, master=null, filt=null, fxGain=null, timer=null, step=0;
   var enabled=true, started=false, ok=true;
 
   function midi(m){ return 440*Math.pow(2,(m-69)/12); }
@@ -366,6 +368,7 @@ var AUDIO = (function(){
     master=ctx.createGain(); master.gain.value=0;
     var comp=ctx.createDynamicsCompressor(); // gentle safety limiter
     master.connect(comp); comp.connect(ctx.destination);
+    fxGain=ctx.createGain(); fxGain.gain.value=0.6; fxGain.connect(comp); // crisp SFX bus (bypasses the mellow pad filter)
     filt=ctx.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=1700; filt.Q.value=0.4;
     var dry=ctx.createGain(); dry.gain.value=0.85;
     var wet=ctx.createGain(); wet.gain.value=0.55;
@@ -432,12 +435,52 @@ var AUDIO = (function(){
     b.innerHTML = enabled ? '🔊' : '🔇';
     b.className = enabled ? '' : 'off';
   }
+  // --- short sound effects (share the music on/off setting) ---
+  function ping(type,f,t,dur,vol,bright){
+    var g=ctx.createGain();
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol,t+0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    var o=ctx.createOscillator(); o.type=type; o.frequency.value=f; o.connect(g);
+    o.start(t); o.stop(t+dur+0.05);
+    if (bright){ var o2=ctx.createOscillator(); o2.type='sine'; o2.frequency.value=f*2;
+      var g2=ctx.createGain(); g2.gain.value=0.3; o2.connect(g2); g2.connect(g); o2.start(t); o2.stop(t+dur+0.05); }
+    g.connect(fxGain);
+  }
+  function slide(type,f0,f1,t,dur,vol){
+    var g=ctx.createGain();
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol,t+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    var o=ctx.createOscillator(); o.type=type;
+    o.frequency.setValueAtTime(f0,t); o.frequency.exponentialRampToValueAtTime(f1,t+dur);
+    o.connect(g); g.connect(fxGain); o.start(t); o.stop(t+dur+0.05);
+  }
+  function sfx(name){
+    if (!ok || !enabled) return;
+    ensure(); if (!ctx) return;
+    if (ctx.state==='suspended') ctx.resume();
+    var t=ctx.currentTime+0.02, i;
+    if (name==='correct'){             // coins dropping
+      var coin=[784,988,1175,1319,1568,1760];
+      for (i=0;i<coin.length;i++) ping('triangle', coin[i], t+i*0.055, 0.16, 0.20, true);
+    } else if (name==='wrong'){        // gentle "uh-oh, try again"
+      slide('triangle', 392, 311, t, 0.20, 0.22);
+      slide('triangle', 277, 220, t+0.20, 0.42, 0.22);
+    } else if (name==='prize'){        // celebratory prize chime
+      var arp=[523,659,784,1047,1319];
+      for (i=0;i<arp.length;i++) ping('triangle', arp[i], t+i*0.085, 0.5, 0.18, true);
+      ping('sine', 1568, t+0.45, 0.7, 0.13, true);
+      ping('sine', 2093, t+0.60, 0.6, 0.10, true);
+    }
+  }
   return {
     load: function(){
       try { enabled = (localStorage.getItem('mq_music')!=='0'); } catch(e){ enabled=true; }
       icon();
     },
     kick: function(){ if (ok && enabled) start(); },   // call on first user gesture
+    sfx: sfx,
     toggle: function(){
       enabled=!enabled;
       try { localStorage.setItem('mq_music', enabled?'1':'0'); } catch(e){}
@@ -874,6 +917,7 @@ function openChest(kind){
   $('chest-reward').innerHTML=txt;
   $('chest-title').innerHTML = kind==='daily'?'Daily Goal Chest! 🎯':'Treasure Chest!';
   $('chest-modal').className='on';
+  AUDIO.sfx('prize');
   confetti($('chest-modal'));
 }
 function randomNewSticker(){
@@ -967,6 +1011,7 @@ function submitAnswer(given){
   }
 
   if (correct){
+    AUDIO.sfx('correct');
     G.combo++; if (G.combo>G.bestComboThis) G.bestComboThis=G.combo;
     if (G.combo>save.bestCombo) save.bestCombo=G.combo;
     var mult=comboMult(G.combo);
@@ -989,6 +1034,7 @@ function submitAnswer(given){
     var newBadges=checkBadges(); if (newBadges.length) persist();
     proceedAfterCorrect(queued, newBadges);
   } else {
+    AUDIO.sfx('wrong');
     G.combo=0; save.curStreak=0; persist();
     flash('<span style="color:#ff5252">Not quite — answer is '+ans+'</span>','#ff5252');
     $('game-mascot').innerHTML=MASCOTS_NO[Math.floor(Math.random()*MASCOTS_NO.length)];
@@ -1327,6 +1373,7 @@ function bindUI(){
   tap('levelup-cont', function(){ if (G._pendingSummary){ G._pendingSummary=false; showSummary(); } else showSelect(); });
   tap('chest-claim', claimChest);
   tap('music-btn', function(){ AUDIO.toggle(); });
+  tap('game-home', showSelect);
 }
 function ensureSave(){
   if (save) return;
