@@ -1,2 +1,16 @@
-# Math-Quest
-A self-contained maths game that installs to the iPad home screen and runs fully offline (no wifi needed once installed). Progress (XP, coins, badges) is saved on the device.
+{
+  "name": "MathQuest",
+  "short_name": "MathQuest",
+  "description": "An offline maths adventure game — practise with handwriting, earn XP, coins and badges.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1a1a2e",
+  "theme_color": "#1a1a2e",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
