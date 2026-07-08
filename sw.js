@@ -1,7 +1,7 @@
 /* MathQuest service worker — caches the app for full offline use.
    Bump CACHE (e.g. v2, v3) whenever you upload a new index.html so the
    iPad fetches the new version on next launch. */
-var CACHE = 'mathquest-v3';
+var CACHE = 'mathquest-v4';
 var ASSETS = [
   './',
   './index.html',
