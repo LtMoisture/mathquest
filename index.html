@@ -777,6 +777,7 @@ function sample(g,W,H,sx,sy){
 /* ---------- DATA ---------- */
 var TOPICS = [
   { id:'counting', name:'Counting', icon:'🔢', color:'#4fc3f7', minLevel:1 },
+  { id:'firstsums', name:'First Sums', icon:'🧮', color:'#8bc34a', minLevel:1 },
   { id:'addition', name:'Addition', icon:'➕', color:'#69f0ae', minLevel:1 },
   { id:'subtraction', name:'Subtraction', icon:'➖', color:'#ff9800', minLevel:1 },
   { id:'patterns', name:'Patterns', icon:'🔁', color:'#ce93d8', minLevel:2 },
@@ -1258,6 +1259,7 @@ function circles(n,color,crossFrom){
 function generateQuestion(id){
   var lv=save.level;
   if (id==='counting') return genCounting(lv);
+  if (id==='firstsums') return genFirstSums();
   if (id==='addition') return genAddition(lv);
   if (id==='subtraction') return genSubtraction(lv);
   if (id==='patterns') return genPatterns(lv);
@@ -1286,6 +1288,17 @@ function genCounting(lv){
   var n=rand(1,Math.min(5+lv*3,30));
   return { type:'num', question:'How many dots?', visual:dots(n), answer:n,
     explain:'Count them one by one: there are <span class="cans">'+n+'</span> dots. Touch each dot as you count!' };
+}
+function genFirstSums(){
+  // gentle beginner addition: both numbers 1..5 (sums 2..10), always shown with pictures
+  var a=rand(1,5), b=rand(1,5), ans=a+b;
+  var vis='<span style="display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center">'
+     +circles(a,'#4fc3f7')
+     +'<span style="font-size:30px;font-weight:bold;color:#ffd54f">+</span>'
+     +circles(b,'#69f0ae')
+     +'</span>';
+  return { type:'num', question:a+' + '+b+' = ?', visual:vis, answer:ans,
+    explain:'Count the blue circles ('+a+'), then keep counting the green ones ('+b+' more). '+a+' + '+b+' = <span class="cans">'+ans+'</span>.' };
 }
 function genAddition(lv){
   var max=Math.min(5+lv*4,50), a=rand(1,max), b=rand(1,max), ans=a+b;
