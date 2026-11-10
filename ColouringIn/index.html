@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7a4fd6">
+<title>Royal Colouring Book</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* layout: slim top bar; picture in the middle, page picker on one side, paint pots on the other */
+  --bg:#e9defc; --panel:#ffffff; --ink:#2b2540; --accent:#7a4fd6; --pop:#ff5fa2; --sun:#ffc93c;
+  --display:"Baloo 2","Comic Sans MS","Trebuchet MS",system-ui,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--display);overflow:hidden;
+  user-select:none;-webkit-user-select:none;touch-action:manipulation}
+button{font:inherit;color:inherit;border:0;cursor:pointer}
+button:focus-visible{outline:4px solid var(--pop);outline-offset:2px}
+.app{height:100%;display:grid;grid-template-rows:auto 1fr;gap:10px;padding:12px 16px}
+.bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+h1{font-size:26px;font-weight:800;margin:0;line-height:1;color:var(--accent)}
+#pname{font-size:20px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tools{display:flex;gap:8px}
+.tool{min-width:60px;height:52px;padding:0 14px;border-radius:16px;background:var(--panel);font-weight:800;font-size:17px;
+  box-shadow:0 3px 0 rgba(43,37,64,.18)}
+.tool:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(43,37,64,.18)}
+.tool.go{background:var(--accent);color:#fff}
+.main{display:grid;grid-template-columns:100px minmax(0,1fr) 128px;gap:12px;min-height:0}
+.pages{display:flex;flex-direction:column;gap:8px;overflow:auto;padding:2px}
+.pg{background:var(--panel);border-radius:14px;padding:4px;border:4px solid transparent;flex:0 0 auto;line-height:0}
+.pg svg{width:100%;height:auto;display:block;pointer-events:none}
+.pg[aria-pressed="true"]{border-color:var(--pop)}
+.stage{position:relative;min-width:0;min-height:0;background:var(--panel);border-radius:22px;padding:8px;overflow:hidden;
+  box-shadow:0 4px 0 rgba(43,37,64,.15)}
+#pic{width:100%;height:100%;display:block}
+#pic .c{cursor:pointer}
+.palette{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-content:start;overflow:auto;padding:4px}
+.sw{aspect-ratio:1;border-radius:50%;border:4px solid #fff;box-shadow:0 0 0 2px rgba(43,37,64,.25);min-width:44px}
+.sw[aria-pressed="true"]{box-shadow:0 0 0 5px var(--ink);transform:scale(1.08)}
+.spark{position:absolute;width:14px;height:14px;pointer-events:none;border-radius:50%;animation:fly .6s ease-out forwards}
+@keyframes fly{to{transform:translate(var(--dx),var(--dy)) scale(.2);opacity:0}}
+@media (prefers-reduced-motion:reduce){.spark{display:none}}
+@media (max-aspect-ratio:1/1){
+  .main{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto}
+  .pages{flex-direction:row}
+  .pg{width:72px}
+  .palette{grid-template-columns:repeat(auto-fill,minmax(46px,1fr))}
+  h1{font-size:22px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="bar">
+    <h1>Royal Colouring Book</h1>
+    <div id="pname"></div>
+    <div class="tools">
+      <button class="tool" id="undo" type="button">Undo</button>
+      <button class="tool" id="clear" type="button">Start again</button>
+      <button class="tool" id="sound" type="button">Sound on</button>
+      <button class="tool go" id="save" type="button" hidden>Save picture</button>
+    </div>
+  </div>
+  <div class="main">
+    <div class="pages" id="pages" aria-label="Pictures"></div>
+    <div class="stage" id="stage"><svg id="pic" viewBox="0 0 600 700" xmlns="http://www.w3.org/2000/svg" role="img"></svg></div>
+    <div class="palette" id="palette" aria-label="Colours"></div>
+  </div>
+</div>
+<script>
+/* ---------- line art: every shape with class "c" can be coloured ---------- */
+const P = (d) => `<path class="c" d="${d}"/>`;
+const C = (cx, cy, r) => `<circle class="c" cx="${cx}" cy="${cy}" r="${r}"/>`;
+const E = (cx, cy, rx, ry) => `<ellipse class="c" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"/>`;
+const R = (x, y, w, h, rx = 0) => `<rect class="c" x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}"/>`;
+const D = (s) => `<g pointer-events="none">${s}</g>`;
+const BG = R(0, 0, 600, 700);
+const mirror = (s) => `<g transform="translate(600 0) scale(-1 1)">${s}</g>`;
+const dot = (cx, cy, r) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#2b2540" stroke="none"/>`;
+const line = (d) => `<path d="${d}" fill="none"/>`;
+function star(cx, cy, R1, R2 = R1 * 0.45) {
+  let d = '';
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 ? R2 : R1, a = -Math.PI / 2 + i * Math.PI / 5;
+    d += (i ? 'L' : 'M') + (cx + r * Math.cos(a)).toFixed(1) + ' ' + (cy + r * Math.sin(a)).toFixed(1);
+  }
+  return P(d + 'Z');
+}
+const face = (cx, cy, s = 1) => D(
+  dot(cx - 24 * s, cy - 5 * s, 6 * s) + dot(cx + 24 * s, cy - 5 * s, 6 * s) +
+  line(`M${cx - 18 * s} ${cy + 20 * s} Q${cx} ${cy + 38 * s} ${cx + 18 * s} ${cy + 20 * s}`));
+const cloud = (x, y, s = 1) =>
+  P(`M${x} ${y} a${20 * s} ${20 * s} 0 0 1 ${30 * s} ${-18 * s} a${26 * s} ${26 * s} 0 0 1 ${48 * s} ${-4 * s} a${20 * s} ${20 * s} 0 0 1 ${30 * s} ${22 * s}Z`);
+function flower(cx, cy, r, base = 650) {
+  let s = R(cx - 4, cy, 8, base - cy, 4) + E(cx + 20, cy + (base - cy) * 0.55, 17, 9);
+  for (let i = 0; i < 5; i++) {
+    const a = -Math.PI / 2 + i * 2 * Math.PI / 5;
+    s += C((cx + r * Math.cos(a)).toFixed(1), (cy + r * Math.sin(a)).toFixed(1), (r * 0.62).toFixed(1));
+  }
+  return s + C(cx, cy, (r * 0.5).toFixed(1));
+}
+const band = (cx, cy, r1, r2) =>
+  P(`M${cx - r2} ${cy} A${r2} ${r2} 0 0 1 ${cx + r2} ${cy} L${cx + r1} ${cy} A${r1} ${r1} 0 0 0 ${cx - r1} ${cy}Z`);
+
+const PAGES = [
+  { id: 'princess', name: 'Princess Lumi', art:
+    BG + star(90, 110, 28) + star(510, 90, 24) + star(525, 250, 18) + star(80, 300, 18) +
+    P('M222 190 Q205 70 300 62 Q395 70 378 190 Q400 290 372 350 L228 350 Q200 290 222 190Z') +
+    P('M232 400 Q110 540 80 650 Q300 690 520 650 Q490 540 368 400Z') +
+    P('M272 400 Q245 540 235 668 Q300 676 365 668 Q355 540 328 400Z') +
+    P('M212 318 Q165 390 196 452 L222 442 Q202 392 240 338Z') +
+    mirror(P('M212 318 Q165 390 196 452 L222 442 Q202 392 240 338Z')) +
+    P('M398 455 L440 360 L448 364 L406 459Z') + star(452, 342, 28) +
+    C(207, 455, 14) + C(393, 455, 14) +
+    R(284, 250, 32, 60) +
+    P('M242 300 Q300 325 358 300 L368 400 L232 400Z') +
+    C(228, 318, 30) + C(372, 318, 30) + R(230, 388, 140, 20, 8) + C(300, 332, 10) +
+    C(300, 190, 74) +
+    P('M229 185 Q240 120 300 118 Q360 120 371 185 Q345 150 300 158 Q255 150 229 185Z') +
+    P('M252 122 L240 58 L276 92 L300 46 L324 92 L360 58 L348 122Z') + C(300, 98, 9) +
+    face(300, 200) },
+
+  { id: 'mermaid', name: 'Coral the Mermaid', art:
+    BG + P('M0 620 Q150 585 300 612 Q450 640 600 600 L600 700 L0 700Z') +
+    P('M60 630 Q30 560 65 500 Q95 440 60 380 Q110 440 90 505 Q70 565 95 628Z') +
+    mirror(P('M60 620 Q30 560 65 500 Q95 440 60 400 Q110 440 90 505 Q70 565 95 615Z')) +
+    C(110, 140, 18) + C(150, 90, 11) + C(500, 180, 16) + C(470, 120, 10) +
+    P('M522 330 L562 303 L562 357Z') + E(480, 330, 46, 27) + D(dot(462, 324, 5)) +
+    C(240, 130, 34) + C(270, 100, 34) + C(300, 90, 34) + C(330, 100, 34) + C(360, 130, 34) + C(232, 178, 30) + C(368, 178, 30) +
+    P('M250 335 Q225 450 300 520 Q360 572 425 560 L432 520 Q385 522 352 482 Q322 432 350 335Z') +
+    P('M422 545 Q470 462 528 490 Q512 540 452 552Z') + P('M424 548 Q492 560 512 628 Q458 615 428 572Z') +
+    P('M258 270 Q200 250 180 190 L200 182 Q222 232 268 250Z') + C(188, 180, 13) +
+    P('M342 270 Q400 300 410 360 L390 364 Q380 315 335 292Z') + C(401, 368, 13) +
+    R(285, 228, 30, 44) +
+    P('M255 262 Q300 280 345 262 L350 338 L250 338Z') + E(300, 338, 54, 15) +
+    C(300, 170, 70) + C(262, 112, 26) + C(300, 100, 26) + C(338, 112, 26) + star(352, 128, 16) +
+    face(300, 180) +
+    P('M150 662 Q150 615 190 615 Q230 615 230 662Z') + star(470, 652, 28) },
+
+  { id: 'unicorn', name: 'Starlight the Unicorn', art:
+    BG + C(320, 80, 42) +
+    band(140, 300, 105, 130) + band(140, 300, 80, 105) + band(140, 300, 55, 80) +
+    cloud(-20, 320, 0.9) + cloud(190, 320, 0.9) +
+    P('M0 600 Q300 560 600 600 L600 700 L0 700Z') +
+    P('M158 395 Q60 380 70 480 Q80 560 130 585 Q112 500 168 452Z') +
+    R(200, 470, 38, 135, 10) + R(250, 480, 38, 130, 10) + R(345, 480, 38, 130, 10) + R(395, 470, 38, 135, 10) +
+    R(198, 592, 42, 26, 6) + R(248, 597, 42, 26, 6) + R(343, 597, 42, 26, 6) + R(393, 592, 42, 26, 6) +
+    E(300, 420, 150, 92) +
+    P('M365 370 Q395 300 415 240 L490 275 Q475 350 445 430Z') +
+    C(408, 195, 30) + C(388, 242, 30) + C(372, 292, 30) + C(362, 342, 30) +
+    P('M425 185 L432 135 L462 175Z') + P('M462 178 L492 82 L500 184Z') +
+    E(455, 225, 68, 54) + E(510, 248, 40, 32) + C(440, 172, 22) +
+    D(dot(470, 215, 7) + dot(526, 244, 3) + line('M500 264 Q512 274 524 266')) +
+    flower(70, 590, 16, 640) + flower(545, 600, 16, 650) },
+
+  { id: 'castle', name: 'Cloud Castle', art:
+    BG + C(90, 90, 45) + cloud(370, 120, 1) + cloud(170, 190, 0.8) +
+    D(line('M155 150 L155 105') + line('M445 150 L445 105') + line('M300 100 L300 55')) +
+    P('M155 108 L195 121 L155 134Z') + P('M445 108 L485 121 L445 134Z') + P('M300 58 L340 71 L300 84Z') +
+    R(110, 260, 90, 345) + R(400, 260, 90, 345) +
+    P('M95 260 L155 150 L215 260Z') + P('M385 260 L445 150 L505 260Z') +
+    R(255, 215, 90, 125) + P('M240 215 L300 100 L360 215Z') + C(300, 265, 18) +
+    P('M200 605 L200 312 L232 312 L232 340 L256 340 L256 312 L288 312 L288 340 L312 340 L312 312 L344 312 L344 340 L368 340 L368 312 L400 312 L400 605Z') +
+    P('M140 385 L140 340 A15 15 0 0 1 170 340 L170 385Z') + P('M430 385 L430 340 A15 15 0 0 1 460 340 L460 385Z') +
+    R(222, 395, 36, 50, 18) + R(342, 395, 36, 50, 18) +
+    P('M0 600 Q300 540 600 600 L600 700 L0 700Z') +
+    P('M265 578 Q250 640 190 700 L410 700 Q350 640 335 578Z') +
+    P('M265 578 L265 500 A35 35 0 0 1 335 500 L335 578Z') + D(dot(322, 540, 4)) +
+    C(55, 625, 30) + C(545, 625, 30) + flower(120, 630, 13, 680) + flower(480, 630, 13, 680) },
+
+  { id: 'dragon', name: 'Ember the Baby Dragon', art:
+    BG + cloud(30, 120, 0.9) + cloud(440, 100, 0.9) + star(300, 48, 24) +
+    P('M0 610 Q300 580 600 610 L600 700 L0 700Z') +
+    P('M195 380 Q60 300 50 190 Q110 255 130 235 Q150 300 180 288 Q190 330 215 340Z') +
+    mirror(P('M195 380 Q60 300 50 190 Q110 255 130 235 Q150 300 180 288 Q190 330 215 340Z')) +
+    P('M415 530 Q540 560 545 455 L572 462 L548 412 L510 448 L530 455 Q525 525 425 495Z') +
+    E(300, 450, 130, 150) + E(300, 482, 80, 105) +
+    E(235, 600, 50, 26) + E(365, 600, 50, 26) + E(186, 440, 26, 44) + E(414, 440, 26, 44) +
+    P('M235 150 L215 80 L265 132Z') + mirror(P('M235 150 L215 80 L265 132Z')) + P('M284 130 L300 92 L316 130Z') +
+    C(300, 225, 100) + E(300, 275, 62, 40) +
+    D(`<circle cx="262" cy="200" r="20" fill="#fff"/><circle cx="338" cy="200" r="20" fill="#fff"/>` +
+      dot(265, 203, 9) + dot(335, 203, 9) + dot(282, 266, 4) + dot(318, 266, 4) + line('M272 290 Q300 308 328 290')) },
+
+  { id: 'butterfly', name: 'Butterfly Garden', art:
+    BG + C(520, 85, 42) + cloud(40, 120, 1) +
+    P('M300 300 Q210 110 95 175 Q45 285 165 345 Q240 362 300 335Z') +
+    P('M300 345 Q205 360 150 440 Q165 535 250 505 Q300 465 300 385Z') + C(170, 240, 30) + C(218, 440, 22) +
+    mirror(P('M300 300 Q210 110 95 175 Q45 285 165 345 Q240 362 300 335Z') +
+      P('M300 345 Q205 360 150 440 Q165 535 250 505 Q300 465 300 385Z') + C(170, 240, 30) + C(218, 440, 22)) +
+    D(line('M292 215 Q272 172 250 165') + line('M308 215 Q328 172 350 165') + dot(250, 165, 5) + dot(350, 165, 5)) +
+    E(300, 335, 18, 82) + C(300, 235, 25) + face(300, 235, 0.38) +
+    P('M0 620 Q300 590 600 620 L600 700 L0 700Z') +
+    flower(105, 575, 24) + flower(300, 600, 19) + flower(495, 570, 24) }
+];
+const WRAP = (art) => `<g stroke="#2b2540" stroke-width="4" stroke-linejoin="round" stroke-linecap="round" fill="#ffffff">${art}</g>`;
+
+const COLOURS = [
+  ['Red','#ef3b3b'],['Orange','#ff8a1f'],['Yellow','#ffd93b'],['Gold','#f2b01e'],
+  ['Lime','#a6e04a'],['Green','#2fae5b'],['Teal','#1fb5a8'],['Sky','#7fd3ff'],
+  ['Blue','#2f6fe0'],['Navy','#27358f'],['Purple','#8a4fd6'],['Lilac','#cfa9f5'],
+  ['Pink','#ff9fc8'],['Hot pink','#ff3f96'],['Peach','#fde0c8'],['Tan','#e3b088'],
+  ['Caramel','#b57a4c'],['Cocoa','#7a4a2a'],['Brown','#5a3a22'],['Grey','#9aa0ac'],
+  ['Black','#2b2540'],['White (rubber)','#ffffff']
+];
+const KEY = 'royal-colouring-v1';
+let st = { page: 0, colour: '#ff3f96', sound: true, fills: {} };
+try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.fills) st = Object.assign(st, s); } catch (e) {}
+if (!(st.page >= 0 && st.page < PAGES.length)) st.page = 0;
+const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
+const $ = (id) => document.getElementById(id);
+const pic = $('pic'), stage = $('stage');
+const undoStack = {};
+let shapes = [];
+
+function fillsFor() { const id = PAGES[st.page].id; return st.fills[id] || (st.fills[id] = {}); }
+function paint() { const f = fillsFor(); shapes.forEach((el, i) => el.setAttribute('fill', f[i] || '#ffffff')); }
+function showPage(n) {
+  st.page = n;
+  pic.innerHTML = WRAP(PAGES[n].art);
+  pic.setAttribute('aria-label', PAGES[n].name);
+  shapes = Array.from(pic.querySelectorAll('.c'));
+  shapes.forEach((el, i) => el.dataset.i = i);
+  $('pname').textContent = PAGES[n].name;
+  document.querySelectorAll('.pg').forEach((b, i) => b.setAttribute('aria-pressed', i === n));
+  paint(); persist();
+}
+
+/* page picker */
+PAGES.forEach((p, i) => {
+  const b = document.createElement('button');
+  b.className = 'pg'; b.type = 'button'; b.setAttribute('aria-label', p.name);
+  b.innerHTML = `<svg viewBox="0 0 600 700">${WRAP(p.art)}</svg>`;
+  b.addEventListener('click', () => showPage(i));
+  $('pages').appendChild(b);
+});
+
+/* paint pots */
+COLOURS.forEach(([name, hex]) => {
+  const b = document.createElement('button');
+  b.className = 'sw'; b.type = 'button'; b.style.background = hex; b.setAttribute('aria-label', name);
+  b.setAttribute('aria-pressed', hex === st.colour);
+  b.addEventListener('click', () => {
+    st.colour = hex; persist();
+    document.querySelectorAll('.sw').forEach((s) => s.setAttribute('aria-pressed', s === b));
+  });
+  $('palette').appendChild(b);
+});
+
+/* sound */
+let actx = null, note = 0;
+const SCALE = [523, 587, 659, 784, 880, 1047];
+function pop() {
+  if (!st.sound) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+    o.type = 'sine'; o.frequency.value = SCALE[note++ % SCALE.length];
+    g.gain.setValueAtTime(0.18, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + 0.23);
+  } catch (e) {}
+}
+function sparkle(x, y, colour) {
+  const r = stage.getBoundingClientRect();
+  for (let i = 0; i < 7; i++) {
+    const s = document.createElement('span'), a = Math.random() * 6.28, d = 30 + Math.random() * 40;
+    s.className = 'spark';
+    s.style.cssText = `left:${x - r.left - 7}px;top:${y - r.top - 7}px;background:${i % 2 ? colour : '#ffc93c'};--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d}px`;
+    stage.appendChild(s); setTimeout(() => s.remove(), 650);
+  }
+}
+
+/* colouring */
+pic.addEventListener('pointerdown', (e) => {
+  const el = e.target.closest ? e.target.closest('.c') : null;
+  if (!el) return;
+  e.preventDefault();
+  const f = fillsFor(), i = el.dataset.i, prev = f[i] || null;
+  if ((prev || '#ffffff') === st.colour) return;
+  const id = PAGES[st.page].id;
+  (undoStack[id] = undoStack[id] || []).push({ i, prev });
+  if (st.colour === '#ffffff') delete f[i]; else f[i] = st.colour;
+  el.setAttribute('fill', st.colour);
+  pop(); sparkle(e.clientX, e.clientY, st.colour); persist();
+});
+$('undo').addEventListener('click', () => {
+  const id = PAGES[st.page].id, u = (undoStack[id] || []).pop();
+  if (!u) return;
+  if (u.all) st.fills[id] = u.all;
+  else { const f = fillsFor(); if (u.prev) f[u.i] = u.prev; else delete f[u.i]; }
+  paint(); persist();
+});
+$('clear').addEventListener('click', () => {
+  const id = PAGES[st.page].id;
+  if (!Object.keys(fillsFor()).length) return;
+  (undoStack[id] = undoStack[id] || []).push({ all: Object.assign({}, fillsFor()) });
+  st.fills[id] = {}; paint(); persist();
+});
+const soundLabel = () => $('sound').textContent = st.sound ? 'Sound on' : 'Sound off';
+$('sound').addEventListener('click', () => { st.sound = !st.sound; soundLabel(); persist(); pop(); });
+soundLabel();
+
+/* saving a PNG only works when the game runs as its own page (not inside a viewer frame) */
+let framed = true; try { framed = window.self !== window.top; } catch (e) {}
+if (!framed) {
+  $('save').hidden = false;
+  $('save').addEventListener('click', () => {
+    const clone = pic.cloneNode(true);
+    clone.setAttribute('width', 1200); clone.setAttribute('height', 1400);
+    const img = new Image();
+    img.onload = () => {
+      const cv = document.createElement('canvas'); cv.width = 1200; cv.height = 1400;
+      cv.getContext('2d').drawImage(img, 0, 0);
+      cv.toBlob((blob) => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = PAGES[st.page].id + '.png';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      });
+    };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(clone));
+  });
+}
+showPage(st.page);
+</script>
+</body>
+</html>
